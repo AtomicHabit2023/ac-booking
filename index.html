@@ -6,10 +6,6 @@
     <title>ตรวจ/ล้างแอร์ประจำปี 2026</title>
     <!-- LIFF SDK -->
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-    
-    <!-- Firebase Compat SDKs (Global inclusion for simple HTML integration) -->
-    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-database-compat.js"></script>
 
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f4f4f4; padding: 20px; max-width: 600px; margin: 0 auto; }
@@ -17,10 +13,13 @@
         h1 { text-align: center; color: #333; font-size: 20px; margin-bottom: 20px; }
         label { display: block; margin-bottom: 8px; font-weight: bold; color: #555; }
         select, input { width: 100%; padding: 12px; margin-bottom: 20px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; box-sizing: border-box; }
+        input:disabled { background-color: #f0f0f0; color: #555; }
         button { width: 100%; padding: 15px; background-color: #06C755; color: white; border: none; border-radius: 8px; font-size: 18px; font-weight: bold; cursor: pointer; }
         button:disabled { background-color: #ccc; }
         .hidden { display: none; }
-        #loading { text-align: center; color: #666; }
+        #statusMessage { text-align: center; color: #666; font-size: 16px; line-height: 1.6; }
+        .error { color: #d93025 !important; font-weight: bold; }
+        .success-box { background: #e6f4ea; border: 1px solid #34a853; padding: 15px; border-radius: 8px; text-align: center; margin-top: 15px; }
         .slot-btn { display: inline-block; width: 48%; margin: 1%; padding: 10px; background: #eef; border: 1px solid #dde; border-radius: 6px; text-align: center; cursor: pointer; }
         .slot-btn.selected { background: #06C755; color: white; border-color: #06C755; }
     </style>
@@ -30,10 +29,13 @@
 <div class="card">
     <h1>📅 หอเกษมสุข จองวันเวลาล้างแอร์ประจำปี 2569</h1>
 
-    <div id="loading">Loading available slots...</div>
+    <div id="statusMessage">Checking authorization... (This may take a few seconds)</div>
 
+    <!-- Booking Form -->
     <div id="bookingForm" class="hidden">
-        
+        <label>Room Number</label>
+        <input type="text" id="roomNo" disabled />
+
         <label>1. Select Date</label>
         <select id="dateSelect" onchange="filterTimes()">
             <option value="">-- Choose Date --</option>
@@ -44,183 +46,183 @@
             <div id="timeContainer"></div>
         </div>
 
-        <div id="roomSection" class="hidden">
-            <label style="margin-top: 20px;">3. Room Number</label>
-            <input type="number" id="roomNo" placeholder="e.g. 404" />
-
+        <div id="actionSection" class="hidden" style="margin-top: 20px;">
             <button id="submitBtn" onclick="submitBooking()">Confirm Booking</button>
+        </div>
+    </div>
+
+    <!-- Existing Booking Details -->
+    <div id="existingBookingSection" class="hidden">
+        <div class="success-box">
+            <h3 style="margin-top:0; color:#137333;">✓ You have already booked</h3>
+            <p id="existingDetails"></p>
         </div>
     </div>
 </div>
 
 <script>
-    // --- 1. FIREBASE CONFIGURATION ---
-    // PASTE YOUR FIREBASE WEB APP CONFIG HERE
-    const firebaseConfig = {
-    apiKey: "AIzaSyCSKN5kiYFebMTTqR4Xkg1JlSXkVvwQyHA",
-    authDomain: "maintenance-system-d0b93.firebaseapp.com",
-    databaseURL: "https://maintenance-system-d0b93-default-rtdb.asia-southeast1.firebasedatabase.app",
-    projectId: "maintenance-system-d0b93",
-    storageBucket: "maintenance-system-d0b93.firebasestorage.app",
-    messagingSenderId: "175073675306",
-    appId: "1:175073675306:web:0e47648f4a78891e525b53",
-    measurementId: "G-1GYB21S9DR"
-  };
-
-    // Initialize Firebase
-    firebase.initializeApp(firebaseConfig);
-    const database = firebase.database();
+    // *** PASTE YOUR NEW GOOGLE SCRIPT WEB APP URL HERE ***
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwLcarPn9Y5ehMedkZsaG9IELlLGjIvhLCv0lImmILpSQfORWJNkRFw26-9nV3bFP4E/exec";
     
-    // --- 2. GLOBAL VARIABLES ---
     let allSlots = [];
     let selectedDate = "";
     let selectedTime = "";
-    let userLineId = "U_GUEST"; // Default if LIFF fails[cite: 1]
-    let userDisplayName = "Guest"; //[cite: 1]
+    let userLineId = "U_GUEST"; 
+    let userDisplayName = "Guest";
+    let tenantRoom = "";
 
-    // --- 3. LIFF INITIALIZATION ---
     async function main() {
         try {
-            await liff.init({ liffId: "2008642005-XE5GDdQV" }); //[cite: 1]
+            await liff.init({ liffId: "2008642005-XE5GDdQV" });
             if (liff.isLoggedIn()) {
-                const profile = await liff.getProfile(); //[cite: 1]
-                userLineId = profile.userId; //[cite: 1]
-                userDisplayName = profile.displayName; //[cite: 1]
+                const profile = await liff.getProfile();
+                userLineId = profile.userId;
+                userDisplayName = profile.displayName;
+                fetchData();
             } else {
-                liff.login(); //[cite: 1]
+                liff.login();
             }
         } catch (err) {
-            console.log("LIFF Init failed", err); //[cite: 1]
+            console.error("LIFF Init failed", err);
+            showStatus("Failed to authenticate with LINE.", true);
         }
-        fetchSlots();
     }
-    
-    // --- 4. FETCH DATA FROM FIREBASE ---
-    function fetchSlots() {
-        const scheduleRef = database.ref("ac_schedule_2026");
-        
-        scheduleRef.once("value")
-            .then((snapshot) => {
-                if (snapshot.exists()) {
-                    const data = snapshot.val();
-                    allSlots = [];
-                    
-                    // Parse the Firebase JSON tree into a flat array of open slots
-                    for (const date in data) {
-                        for (const time in data[date]) {
-                            if (data[date][time].status === "open") {
-                                allSlots.push({ date: date, time: time });
-                            }
-                        }
-                    }
-                    
-                    populateDates();
-                    document.getElementById("loading").classList.add("hidden"); //[cite: 1]
-                    document.getElementById("bookingForm").classList.remove("hidden"); //[cite: 1]
+
+    function showStatus(msg, isError = false) {
+        const el = document.getElementById("statusMessage");
+        el.innerText = msg;
+        el.className = isError ? "error" : "";
+        el.classList.remove("hidden");
+    }
+
+    function fetchData() {
+        // Ping the Google Sheet to verify tenant and get slots
+        fetch(`${SCRIPT_URL}?action=init&lineId=${userLineId}`)
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById("statusMessage").classList.add("hidden");
+
+                if (!data.authorized) {
+                    showStatus("Access Denied: Only registered active tenants can book. Please contact management.", true);
+                    return;
+                }
+
+                tenantRoom = data.room;
+                document.getElementById("roomNo").value = `Room ${tenantRoom}`;
+
+                if (data.existingBooking) {
+                    document.getElementById("existingDetails").innerHTML = 
+                        `<strong>Room:</strong> ${data.existingBooking.room}<br>` +
+                        `<strong>Date:</strong> ${data.existingBooking.date}<br>` +
+                        `<strong>Time:</strong> ${data.existingBooking.time}`;
+                    document.getElementById("existingBookingSection").classList.remove("hidden");
                 } else {
-                    document.getElementById("loading").innerText = "No schedule available at this time.";
+                    allSlots = data.slots;
+                    if(allSlots.length === 0) {
+                        showStatus("No slots available at this time.");
+                    } else {
+                        populateDates();
+                        document.getElementById("bookingForm").classList.remove("hidden");
+                    }
                 }
             })
             .catch(error => {
-                alert("Error loading schedule. Please try again."); //[cite: 1]
-                console.error(error); //[cite: 1]
+                showStatus("Error loading schedule. Please try again.", true);
+                console.error(error);
             });
     }
 
-    // --- 5. UI FUNCTIONS ---
     function populateDates() {
-        const uniqueDates = [...new Set(allSlots.map(slot => slot.date))]; //[cite: 1]
-        const dateSelect = document.getElementById("dateSelect"); //[cite: 1]
-        dateSelect.innerHTML = '<option value="">-- Choose Date --</option>'; // Clear old options
+        const uniqueDates = [...new Set(allSlots.map(slot => slot.date))];
+        const dateSelect = document.getElementById("dateSelect");
+        dateSelect.innerHTML = '<option value="">-- Choose Date --</option>';
         
         uniqueDates.forEach(date => {
-            let option = document.createElement("option"); //[cite: 1]
-            option.value = date; //[cite: 1]
-            option.text = date; //[cite: 1]
-            dateSelect.appendChild(option); //[cite: 1]
+            let option = document.createElement("option");
+            option.value = date;
+            option.text = date;
+            dateSelect.appendChild(option);
         });
     }
 
     function filterTimes() {
-        selectedDate = document.getElementById("dateSelect").value; //[cite: 1]
-        const timeContainer = document.getElementById("timeContainer"); //[cite: 1]
-        timeContainer.innerHTML = ""; //[cite: 1]
-        selectedTime = ""; // Reset time[cite: 1]
+        selectedDate = document.getElementById("dateSelect").value;
+        const timeContainer = document.getElementById("timeContainer");
+        timeContainer.innerHTML = "";
+        selectedTime = "";
         
         if (!selectedDate) {
-            document.getElementById("timeSection").classList.add("hidden"); //[cite: 1]
-            return; //[cite: 1]
+            document.getElementById("timeSection").classList.add("hidden");
+            document.getElementById("actionSection").classList.add("hidden");
+            return;
         }
 
-        const filteredSlots = allSlots.filter(slot => slot.date === selectedDate); //[cite: 1]
+        const filteredSlots = allSlots.filter(slot => slot.date === selectedDate);
         
         filteredSlots.forEach(slot => {
-            let btn = document.createElement("div"); //[cite: 1]
-            btn.className = "slot-btn"; //[cite: 1]
-            btn.innerText = slot.time; //[cite: 1]
-            btn.onclick = function() { //[cite: 1]
-                document.querySelectorAll(".slot-btn").forEach(b => b.classList.remove("selected")); //[cite: 1]
-                btn.classList.add("selected"); //[cite: 1]
-                selectedTime = slot.time; //[cite: 1]
-                document.getElementById("roomSection").classList.remove("hidden"); //[cite: 1]
+            let btn = document.createElement("div");
+            btn.className = "slot-btn";
+            btn.innerText = slot.time;
+            btn.onclick = function() {
+                document.querySelectorAll(".slot-btn").forEach(b => b.classList.remove("selected"));
+                btn.classList.add("selected");
+                selectedTime = slot.time;
+                document.getElementById("actionSection").classList.remove("hidden");
             };
-            timeContainer.appendChild(btn); //[cite: 1]
+            timeContainer.appendChild(btn);
         });
 
-        document.getElementById("timeSection").classList.remove("hidden"); //[cite: 1]
-        document.getElementById("roomSection").classList.add("hidden"); //[cite: 1]
+        document.getElementById("timeSection").classList.remove("hidden");
+        document.getElementById("actionSection").classList.add("hidden");
     }
 
-    // --- 6. SUBMIT TO FIREBASE ---
     function submitBooking() {
-        const roomNo = document.getElementById("roomNo").value; //[cite: 1]
-        if (!roomNo || !selectedTime || !selectedDate) {
-            alert("Please complete all fields."); //[cite: 1]
-            return; //[cite: 1]
+        if (!selectedTime || !selectedDate || !tenantRoom) {
+            alert("Please select a date and time.");
+            return;
         }
 
-        const btn = document.getElementById("submitBtn"); //[cite: 1]
-        btn.disabled = true; //[cite: 1]
-        btn.innerText = "Booking..."; //[cite: 1]
+        const btn = document.getElementById("submitBtn");
+        btn.disabled = true;
+        btn.innerText = "Booking...";
 
-        // Point to the exact slot node in the database
-        const specificSlotRef = database.ref(`ac_schedule_2026/${selectedDate}/${selectedTime}`);
-
-        // Check one last time to ensure nobody booked it in the last few seconds
-        specificSlotRef.once("value").then((snapshot) => {
-            if (snapshot.exists() && snapshot.val().status === "open") {
-                // It is still open, proceed to update
-                specificSlotRef.update({
-                    status: "booked",
-                    room: roomNo,
-                    lineId: userLineId,
-                    displayName: userDisplayName
-                }).then(() => {
-                    alert("Booking Successful! See you on " + selectedDate + " at " + selectedTime); //[cite: 1]
-                    if (liff.isInClient()) liff.closeWindow(); //[cite: 1]
-                    else location.reload(); //[cite: 1]
-                }).catch(error => {
-                    alert("Error confirming booking: " + error.message);
-                    btn.disabled = false;
-                    btn.innerText = "Confirm Booking";
-                });
+        const payload = {
+            date: selectedDate,
+            time: selectedTime,
+            roomNo: tenantRoom,
+            lineId: userLineId,
+            displayName: userDisplayName    
+        };
+        
+        fetch(SCRIPT_URL, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === "success") {
+                alert(`Booking Successful for Room ${tenantRoom} on ${selectedDate} at ${selectedTime}!`);
+                if (liff.isInClient()) liff.closeWindow();
+                else location.reload();
             } else {
-                // Someone else took it
-                alert("Sorry, this slot was just booked by someone else! Please choose another.");
+                alert("Error: " + data.message);
                 btn.disabled = false;
                 btn.innerText = "Confirm Booking";
-                
-                // Refresh the available slots
-                fetchSlots(); 
-                document.getElementById("timeSection").classList.add("hidden");
-                document.getElementById("roomSection").classList.add("hidden");
+                // Reload data in case someone else took it
+                showStatus("Checking updated schedule...");
+                document.getElementById("bookingForm").classList.add("hidden");
+                fetchData(); 
             }
+        })
+        .catch(error => {
+            console.error("Error:", error);
+            alert("Network error. Please try again."); 
+            btn.disabled = false;
+            btn.innerText = "Confirm Booking";
         });
     }
 
-    // Start App
-    main(); //[cite: 1]
-
+    main(); 
 </script>
 
 </body>
