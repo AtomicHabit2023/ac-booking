@@ -4,8 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ตรวจ/ล้างแอร์ประจำปี 2026</title>
+    <!-- LIFF SDK -->
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     
+    <!-- Firebase Compat SDKs (Global inclusion for simple HTML integration) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-database-compat.js"></script>
+
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f4f4f4; padding: 20px; max-width: 600px; margin: 0 auto; }
         .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
@@ -49,144 +54,172 @@
 </div>
 
 <script>
-    // *** PASTE YOUR GOOGLE SCRIPT WEB APP URL HERE ***
-    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxxWDosCy6HToINWAuIYoEGNSU3JY7Rb_kxbVP2iFDOrk1VKZaG04HUW5V-o0x-i-WA/exec"; 
+    // --- 1. FIREBASE CONFIGURATION ---
+    // PASTE YOUR FIREBASE WEB APP CONFIG HERE
+    const firebaseConfig = {
+    apiKey: "AIzaSyCSKN5kiYFebMTTqR4Xkg1JlSXkVvwQyHA",
+    authDomain: "maintenance-system-d0b93.firebaseapp.com",
+    databaseURL: "https://maintenance-system-d0b93-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "maintenance-system-d0b93",
+    storageBucket: "maintenance-system-d0b93.firebasestorage.app",
+    messagingSenderId: "175073675306",
+    appId: "1:175073675306:web:0e47648f4a78891e525b53",
+    measurementId: "G-1GYB21S9DR"
+  };
+
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+    const database = firebase.database();
     
+    // --- 2. GLOBAL VARIABLES ---
     let allSlots = [];
     let selectedDate = "";
     let selectedTime = "";
-    let userLineId = "U_GUEST"; // Default if LIFF fails
-    let userDisplayName = "Guest";
+    let userLineId = "U_GUEST"; // Default if LIFF fails[cite: 1]
+    let userDisplayName = "Guest"; //[cite: 1]
 
-    // Initialize LIFF (Optional but recommended for auto-LineID)
+    // --- 3. LIFF INITIALIZATION ---
     async function main() {
         try {
-            await liff.init({ liffId: "2008642005-XE5GDdQV" }); // Put your LIFF ID here if you have one, or remove this block
-        if (liff.isLoggedIn()) {
-            const profile = await liff.getProfile();
-            userLineId = profile.userId;
-            userDisplayName = profile.displayName;
-        } else {
-            liff.login(); // <--- This commands the user to Log In
-        }
+            await liff.init({ liffId: "2008642005-XE5GDdQV" }); //[cite: 1]
+            if (liff.isLoggedIn()) {
+                const profile = await liff.getProfile(); //[cite: 1]
+                userLineId = profile.userId; //[cite: 1]
+                userDisplayName = profile.displayName; //[cite: 1]
+            } else {
+                liff.login(); //[cite: 1]
+            }
         } catch (err) {
-            console.log("LIFF Init failed", err);
+            console.log("LIFF Init failed", err); //[cite: 1]
         }
         fetchSlots();
     }
     
-    // Fetch Data from Google Sheet
+    // --- 4. FETCH DATA FROM FIREBASE ---
     function fetchSlots() {
-        fetch(SCRIPT_URL)
-            .then(response => response.json())
-            .then(data => {
-                allSlots = data;
-                populateDates();
-                document.getElementById("loading").classList.add("hidden");
-                document.getElementById("bookingForm").classList.remove("hidden");
+        const scheduleRef = database.ref("ac_schedule_2026");
+        
+        scheduleRef.once("value")
+            .then((snapshot) => {
+                if (snapshot.exists()) {
+                    const data = snapshot.val();
+                    allSlots = [];
+                    
+                    // Parse the Firebase JSON tree into a flat array of open slots
+                    for (const date in data) {
+                        for (const time in data[date]) {
+                            if (data[date][time].status === "open") {
+                                allSlots.push({ date: date, time: time });
+                            }
+                        }
+                    }
+                    
+                    populateDates();
+                    document.getElementById("loading").classList.add("hidden"); //[cite: 1]
+                    document.getElementById("bookingForm").classList.remove("hidden"); //[cite: 1]
+                } else {
+                    document.getElementById("loading").innerText = "No schedule available at this time.";
+                }
             })
             .catch(error => {
-                alert("Error loading schedule. Please try again.");
-                console.error(error);
+                alert("Error loading schedule. Please try again."); //[cite: 1]
+                console.error(error); //[cite: 1]
             });
     }
 
-    // Populate the Date Dropdown (Unique dates only)
+    // --- 5. UI FUNCTIONS ---
     function populateDates() {
-        const uniqueDates = [...new Set(allSlots.map(slot => slot.date))];
-        const dateSelect = document.getElementById("dateSelect");
+        const uniqueDates = [...new Set(allSlots.map(slot => slot.date))]; //[cite: 1]
+        const dateSelect = document.getElementById("dateSelect"); //[cite: 1]
+        dateSelect.innerHTML = '<option value="">-- Choose Date --</option>'; // Clear old options
         
         uniqueDates.forEach(date => {
-            let option = document.createElement("option");
-            option.value = date;
-            option.text = date;
-            dateSelect.appendChild(option);
+            let option = document.createElement("option"); //[cite: 1]
+            option.value = date; //[cite: 1]
+            option.text = date; //[cite: 1]
+            dateSelect.appendChild(option); //[cite: 1]
         });
     }
 
-    // Show times for selected date
     function filterTimes() {
-        selectedDate = document.getElementById("dateSelect").value;
-        const timeContainer = document.getElementById("timeContainer");
-        timeContainer.innerHTML = "";
-        selectedTime = ""; // Reset time
+        selectedDate = document.getElementById("dateSelect").value; //[cite: 1]
+        const timeContainer = document.getElementById("timeContainer"); //[cite: 1]
+        timeContainer.innerHTML = ""; //[cite: 1]
+        selectedTime = ""; // Reset time[cite: 1]
         
         if (!selectedDate) {
-            document.getElementById("timeSection").classList.add("hidden");
-            return;
+            document.getElementById("timeSection").classList.add("hidden"); //[cite: 1]
+            return; //[cite: 1]
         }
 
-        const filteredSlots = allSlots.filter(slot => slot.date === selectedDate);
+        const filteredSlots = allSlots.filter(slot => slot.date === selectedDate); //[cite: 1]
         
         filteredSlots.forEach(slot => {
-            let btn = document.createElement("div");
-            btn.className = "slot-btn";
-            btn.innerText = slot.time;
-            btn.onclick = function() {
-                // Remove 'selected' class from all others
-                document.querySelectorAll(".slot-btn").forEach(b => b.classList.remove("selected"));
-                btn.classList.add("selected");
-                selectedTime = slot.time;
-                document.getElementById("roomSection").classList.remove("hidden");
+            let btn = document.createElement("div"); //[cite: 1]
+            btn.className = "slot-btn"; //[cite: 1]
+            btn.innerText = slot.time; //[cite: 1]
+            btn.onclick = function() { //[cite: 1]
+                document.querySelectorAll(".slot-btn").forEach(b => b.classList.remove("selected")); //[cite: 1]
+                btn.classList.add("selected"); //[cite: 1]
+                selectedTime = slot.time; //[cite: 1]
+                document.getElementById("roomSection").classList.remove("hidden"); //[cite: 1]
             };
-            timeContainer.appendChild(btn);
+            timeContainer.appendChild(btn); //[cite: 1]
         });
 
-        document.getElementById("timeSection").classList.remove("hidden");
-        document.getElementById("roomSection").classList.add("hidden");
+        document.getElementById("timeSection").classList.remove("hidden"); //[cite: 1]
+        document.getElementById("roomSection").classList.add("hidden"); //[cite: 1]
     }
 
-    // Submit Data to Google Sheet
+    // --- 6. SUBMIT TO FIREBASE ---
     function submitBooking() {
-        const roomNo = document.getElementById("roomNo").value;
+        const roomNo = document.getElementById("roomNo").value; //[cite: 1]
         if (!roomNo || !selectedTime || !selectedDate) {
-            alert("Please complete all fields.");
-            return;
+            alert("Please complete all fields."); //[cite: 1]
+            return; //[cite: 1]
         }
 
-        const btn = document.getElementById("submitBtn");
-        btn.disabled = true;
-        btn.innerText = "Booking...";
+        const btn = document.getElementById("submitBtn"); //[cite: 1]
+        btn.disabled = true; //[cite: 1]
+        btn.innerText = "Booking..."; //[cite: 1]
 
-        const payload = {
-            date: selectedDate,
-            time: selectedTime,
-            roomNo: roomNo,
-            lineId: userLineId,
-	    displayName: userDisplayName	
-        };
+        // Point to the exact slot node in the database
+        const specificSlotRef = database.ref(`ac_schedule_2026/${selectedDate}/${selectedTime}`);
 
-        // Send POST request (using 'no-cors' mode is tricky with reading response, 
-        // strictly speaking standard fetch to GAS requires simple content type or handling redirects. 
-        // This method below is the standard robust way for GAS Web Apps).
-        
-        fetch(SCRIPT_URL, {
-            method: 'POST',
-            body: JSON.stringify(payload)
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === "success") {
-                alert("Booking Successful! See you on " + selectedDate + " at " + selectedTime);
-                if (liff.isInClient()) liff.closeWindow();
-                else location.reload();
+        // Check one last time to ensure nobody booked it in the last few seconds
+        specificSlotRef.once("value").then((snapshot) => {
+            if (snapshot.exists() && snapshot.val().status === "open") {
+                // It is still open, proceed to update
+                specificSlotRef.update({
+                    status: "booked",
+                    room: roomNo,
+                    lineId: userLineId,
+                    displayName: userDisplayName
+                }).then(() => {
+                    alert("Booking Successful! See you on " + selectedDate + " at " + selectedTime); //[cite: 1]
+                    if (liff.isInClient()) liff.closeWindow(); //[cite: 1]
+                    else location.reload(); //[cite: 1]
+                }).catch(error => {
+                    alert("Error confirming booking: " + error.message);
+                    btn.disabled = false;
+                    btn.innerText = "Confirm Booking";
+                });
             } else {
-                alert("Error: " + data.message);
+                // Someone else took it
+                alert("Sorry, this slot was just booked by someone else! Please choose another.");
                 btn.disabled = false;
                 btn.innerText = "Confirm Booking";
+                
+                // Refresh the available slots
+                fetchSlots(); 
+                document.getElementById("timeSection").classList.add("hidden");
+                document.getElementById("roomSection").classList.add("hidden");
             }
-        })
-        .catch(error => {
-            console.error("Error:", error);
-            // Sometimes GAS returns opaque response in no-cors, assume success if no network error
-            alert("Request sent. Please check your schedule."); 
         });
     }
 
-    // Start
-    // If you don't have a LIFF ID yet, just call fetchSlots() directly.
-    main(); 
-    //fetchSlots(); 
+    // Start App
+    main(); //[cite: 1]
 
 </script>
 
